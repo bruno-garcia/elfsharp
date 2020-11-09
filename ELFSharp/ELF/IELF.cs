@@ -14,9 +14,9 @@ namespace ELFSharp.ELF
         bool HasSegmentHeader { get; }
         bool HasSectionHeader { get; }
         bool HasSectionsStringTable { get; }
-        IReadOnlyList<ISegment> Segments { get; }
+        IEnumerable<ISegment> Segments { get; }
         IStringTable SectionsStringTable { get; }
-        IReadOnlyList<ISection> Sections { get; }
+        IEnumerable<ISection> Sections { get; }
         IEnumerable<T> GetSections<T>() where T : ISection;
         bool TryGetSection(string name, out ISection section);
         ISection GetSection(string name);

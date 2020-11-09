@@ -4,37 +4,41 @@ using System.Linq;
 using System.Text;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
-using System.Diagnostics;
 using ELFSharp.Utilities;
 
 namespace ELFSharp.MachO
 {
-    [DebuggerDisplay("{Type}({Name,nq})")]
     public sealed class Segment : Command
     {
-        public Segment(SimpleEndianessAwareReader reader, Stream stream, bool is64) : base(reader, stream)
+        public Segment(BinaryReader reader, Func<FileStream> streamProvider, bool is64) : base(reader, streamProvider)
         {
             this.is64 = is64;
             Name = ReadSectionOrSegmentName();
-            Address = ReadUInt32OrUInt64();
-            Size = ReadUInt32OrUInt64();
-            FileOffset = ReadUInt32OrUInt64();
-            var fileSize = ReadUInt32OrUInt64();
+            Address = ReadInt32OrInt64();
+            Size = ReadInt32OrInt64();
+            var fileOffset = ReadInt32OrInt64();
+            var fileSize = ReadInt32OrInt64();
             MaximalProtection = ReadProtection();
             InitialProtection = ReadProtection();
             var numberOfSections = Reader.ReadInt32();
             Reader.ReadInt32(); // we ignore flags for now
-
             if(fileSize > 0)
             {
-                var streamPosition = Stream.Position;
-                Stream.Seek((long)FileOffset, SeekOrigin.Begin);
-                data = new byte[Size];                
-                var buffer = stream.ReadBytesOrThrow(checked((int)fileSize));
-                Array.Copy(buffer, data, buffer.Length);
-                Stream.Position = streamPosition;
+                if (fileSize > Size)
+                {
+                    var ex = new InvalidOperationException("The size defined on the header is smaller than the subsequent file size.");
+                    ex.Data["Size"] = Size;
+                    ex.Data["fileSize"] = fileSize;
+                    throw ex;
+                }
+                data = new byte[Size];
+                using(var stream = streamProvider())
+                {
+                    stream.Seek(fileOffset, SeekOrigin.Begin);
+                    var buffer = stream.ReadBytesOrThrow(checked((int)fileSize));
+                    Array.Copy(buffer, data, buffer.Length);
+                }
             }
-
             var sections = new List<Section>();
             for(var i = 0; i < numberOfSections; i++)
             {
@@ -44,26 +48,30 @@ namespace ELFSharp.MachO
                 {
                     throw new InvalidOperationException("Unexpected name of the section's segment.");
                 }
-                var sectionAddress = ReadUInt32OrUInt64();
-                var sectionSize = ReadUInt32OrUInt64();
-                var offset = Reader.ReadUInt32();
-                var alignExponent = Reader.ReadUInt32();
-                Reader.ReadBytes(is64 ? 24 : 20);
-                var section = new Section(sectionName, sectionAddress, sectionSize, offset, alignExponent, this);
+                var sectionAddress = ReadInt32OrInt64();
+                var sectionSize = ReadInt32OrInt64();
+                var offsetInSegment = ReadInt32OrInt64() - fileOffset;
+                if(offsetInSegment < 0)
+                {
+                    // TODO: Figure out how to handle this/what to do when sending changes upstream
+                    // Throws here although sentry-cli doesn't error (nor warn, as it does i.e:
+                    //   WARN    2019-12-23 18:53:49.572415 +01:00 section #1 size 548064 out of bounds  (from goblin)
+                    // throw new InvalidOperationException("Unexpected section offset lower than segment offset.");
+                }
+                var alignExponent = Reader.ReadInt32();
+                Reader.ReadBytes(20);
+                var section = new Section(sectionName, sectionAddress, sectionSize, offsetInSegment, alignExponent, this);
                 sections.Add(section);
             }
-
             Sections = new ReadOnlyCollection<Section>(sections);
         }
 
         public string Name { get; private set; }
-        public ulong Address { get; private set; }
-        public ulong Size { get; private set; }
-        public ulong FileOffset { get; private set; }
+        public long Address { get; private set; }
+        public long Size { get; private set; }
         public Protection InitialProtection { get; private set; }
         public Protection MaximalProtection { get; private set; }
         public ReadOnlyCollection<Section> Sections { get; private set; }
-        private CommandType Type => is64 ? CommandType.Segment64 : CommandType.Segment;
 
         public byte[] GetData()
         {
@@ -74,9 +82,9 @@ namespace ELFSharp.MachO
             return data.ToArray();
         }
 
-        private ulong ReadUInt32OrUInt64()
+        private long ReadInt32OrInt64()
         {
-            return is64 ? Reader.ReadUInt64() : Reader.ReadUInt32();
+            return is64 ? Reader.ReadInt64() : Reader.ReadInt32();
         }
 
         private Protection ReadProtection()

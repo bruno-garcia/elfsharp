@@ -1,30 +1,31 @@
 ﻿using System.IO;
 using System.Collections.Generic;
 using System.Linq;
-using ELFSharp.Utilities;
 
 namespace ELFSharp.MachO
 {
     public sealed class MachO
     {
-        internal MachO(Stream stream, bool is64, Endianess endianess, bool ownsStream)
+        internal MachO(string fileName, bool is64)
         {
             this.is64 = is64;
-
-            using var reader = new SimpleEndianessAwareReader(stream, endianess, ownsStream);
-
-            Machine = (Machine)reader.ReadInt32();
-            reader.ReadBytes(4); // we don't support the cpu subtype now
-            FileType = (FileType)reader.ReadUInt32();
-            var noOfCommands = reader.ReadInt32();
-            reader.ReadInt32(); // size of commands
-            reader.ReadBytes(4); // we don't support flags now
-            if(is64)
+            this.fileName = fileName;
+            using(var reader = new BinaryReader(OpenStream()))
             {
-                reader.ReadBytes(4); // reserved
+                reader.ReadBytes(4); // header, already checked
+                Machine = (Machine)reader.ReadInt32();
+                CpuSubType = (CpuSubType)reader.ReadUInt32();
+                FileType = (FileType)reader.ReadUInt32();
+                var noOfCommands = reader.ReadInt32();
+                reader.ReadInt32(); // size of commands
+                reader.ReadBytes(4); // we don't support flags now
+                if(is64)
+                {
+                    reader.ReadBytes(4); // reserved
+                }
+                commands = new Command[noOfCommands];
+                ReadCommands(noOfCommands, reader);
             }
-            commands = new Command[noOfCommands];
-            ReadCommands(noOfCommands, stream, reader);
         }
 
         public IEnumerable<T> GetCommandsOfType<T>()
@@ -33,10 +34,13 @@ namespace ELFSharp.MachO
         }
 
         public Machine Machine { get; private set; }
+        // uint CPU_SUBTYPE_MASK = 0xff00_0000;
+        // Flag to remove CPU capabilities: CpuSubType & !CPU_SUBTYPE_MASK
+        public CpuSubType CpuSubType { get; private set; }
 
         public FileType FileType { get; private set; }
 
-        private void ReadCommands(int noOfCommands, Stream stream, SimpleEndianessAwareReader reader)
+        private void ReadCommands(int noOfCommands, BinaryReader reader)
         {
             for(var i = 0; i < noOfCommands; i++)
             {
@@ -45,14 +49,23 @@ namespace ELFSharp.MachO
                 switch((CommandType)loadCommandType)
                 {
                 case CommandType.SymbolTable:
-                    commands[i] = new SymbolTable(reader, stream, is64);
+                    commands[i] = new SymbolTable(reader, OpenStream, is64);
                     break;
                 case CommandType.Main:
-                    commands[i] = new EntryPoint(reader, stream);
+                    commands[i] = new EntryPoint(reader, OpenStream);
+                    break;
+                case CommandType.Uuid:
+                    commands[i] = new Uuid(reader, OpenStream);
+                    break;
+                case CommandType.VersionMinMacOS:
+                    commands[i] = new MacOsMinVersion(reader, OpenStream);
+                    break;
+                case CommandType.VersionMinIPhoneOS:
+                    commands[i] = new IPhoneOsMinVersion(reader, OpenStream);
                     break;
                 case CommandType.Segment:
                 case CommandType.Segment64:
-                    commands[i] = new Segment(reader, stream, is64);
+                    commands[i] = new Segment(reader, OpenStream, is64);
                     break;
                 default:
                     reader.ReadBytes((int)commandSize - 8); // 8 bytes is the size of the common command header
@@ -61,10 +74,17 @@ namespace ELFSharp.MachO
             }
         }
 
+        private FileStream OpenStream()
+        {
+            return File.Open(fileName, FileMode.Open, FileAccess.Read, FileShare.Read);
+        }
+
         private readonly bool is64;
+        private readonly string fileName;
         private readonly Command[] commands;
 
         internal const int Architecture64 = 0x1000000;
+        internal const int Architecture6432 = 0x0200_0000;
     }
 }
 

@@ -6,16 +6,25 @@ namespace ELFSharp.ELF.Sections
 {
     public class Section<T> : ISection where T : struct
     {
-        internal Section(SectionHeader header, SimpleEndianessAwareReader reader)
+        internal Section(SectionHeader header, Func<SimpleEndianessAwareReader> readerSource)
         {
             Header = header;
-            this.Reader = reader;
+            this.readerSource = readerSource;
         }
 
         public virtual byte[] GetContents()
         {
-            Reader.BaseStream.Seek((long)Header.Offset, SeekOrigin.Begin);
-            return Reader.ReadBytes(Convert.ToInt32(Header.Size));
+            using(var reader = ObtainReader())
+            {
+                return reader.ReadBytes(Convert.ToInt32(Header.Size));
+            }
+        }
+
+        protected SimpleEndianessAwareReader ObtainReader()
+        {
+            var reader = readerSource();
+            reader.BaseStream.Seek((long)Header.Offset, SeekOrigin.Begin);
+            return reader;
         }
 
         public string Name
@@ -105,12 +114,7 @@ namespace ELFSharp.ELF.Sections
 
         internal SectionHeader Header { get; private set; }
 
-        protected void SeekToSectionBeginning()
-        {
-            Reader.BaseStream.Seek((long)Header.Offset, SeekOrigin.Begin);
-        }
-
-        protected readonly SimpleEndianessAwareReader Reader;
+        private readonly Func<SimpleEndianessAwareReader> readerSource;
     }
 }
 

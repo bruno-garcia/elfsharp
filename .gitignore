@@ -1,3 +1,4 @@
+<<<<<<< HEAD
 bin/
 obj/
 *.userprefs
@@ -5,3 +6,15 @@ test-results/
 /packages/*/
 /.vs
 .idea/
+=======
+.idea/
+.vs/
+.DS_Store
+bin/
+obj/
+out/
+TestResults/
+*.user
+dev-data/
+TestResult.xml
+>>>>>>> 22b3124902355940d896548f6156bab1e37fed8a

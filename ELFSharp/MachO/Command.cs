@@ -1,18 +1,23 @@
-﻿using System.IO;
-using ELFSharp.Utilities;
+﻿using System;
+using System.IO;
 
 namespace ELFSharp.MachO
 {
     public class Command
     {
-        internal Command(SimpleEndianessAwareReader reader, Stream stream)
+        internal Command(BinaryReader reader, Func<FileStream> streamProvider)
         {
-            Stream = stream;
+            this.streamProvider = streamProvider;
             Reader = reader;
         }
-        
-        protected readonly SimpleEndianessAwareReader Reader;
-        protected readonly Stream Stream;
+
+        protected FileStream ProvideStream()
+        {
+            return streamProvider();
+        }
+
+        protected readonly BinaryReader Reader;
+        private readonly Func<FileStream> streamProvider;
     }
 }
 
